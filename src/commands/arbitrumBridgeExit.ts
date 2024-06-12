@@ -1,6 +1,6 @@
 import { Command } from '@commander-js/extra-typings';
 import { providers, Wallet } from 'ethers';
-import { L2ToL1Message, L2TransactionReceipt } from '@arbitrum/sdk';
+import { L2ToL1Message, L2ToL1MessageStatus, L2TransactionReceipt } from '@arbitrum/sdk';
 
 export function addCommand(program: Command) {
     program
