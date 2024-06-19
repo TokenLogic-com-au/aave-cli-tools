@@ -1,7 +1,7 @@
 
 import { Command } from '@commander-js/extra-typings';
 
-import { optimism } from '@eth-optimism/sdk';
+import { CrossChainMessenger, MessageStatus } from '@eth-optimism/sdk';
 import { providers, Wallet } from 'ethers';
 
 function getMessenger() {
@@ -14,7 +14,7 @@ function getMessenger() {
           const l1_wallet = new Wallet(PRIVATE_KEY, l1_provider);
           const l2_wallet = new Wallet(PRIVATE_KEY, l2_provider);
 
-          const messenger = new optimism.CrossChainMessenger({
+          const messenger = new CrossChainMessenger({
             l1ChainId: L1_CHAIN_ID,
             l2ChainId: L2_CHAIN_ID,
             l1SignerOrProvider: l1_wallet,
@@ -30,14 +30,13 @@ export function addCommand(program: Command) {
         .description('prove optimism transaction to confirm bridge')
         .argument('<tx_hash>')
         .argument('<log_index>')
-        .argument('<block_number>')
         .action(async (tx_hash, log_index) => {
           const messenger = getMessenger();
 
           console.log('Waiting for message to be READY_TO_PROVE');
 
-          await messenger.waitForMessageStatus(tx_hash, optimism.MessageStatus.READY_TO_PROVE);
-          await messenger.proveMessage(tx_hash);
+          await messenger.waitForMessageStatus(tx_hash, MessageStatus.READY_TO_PROVE);
+          await messenger.proveMessage(tx_hash, {}, Number(log_index));
         });
 
         program
@@ -45,17 +44,16 @@ export function addCommand(program: Command) {
         .description('finalizes optimism transaction to bridge')
         .argument('<tx_hash>')
         .argument('<log_index>')
-        .argument('<block_number>')
         .action(async (tx_hash, log_index) => {
           const messenger = getMessenger();
 
           console.log('Waiting for message to be READY_FOR_RELAY');
 
-          await messenger.waitForMessageStatus(tx_hash, optimism.MessageStatus.READY_FOR_RELAY);
-          await messenger.finalizeMessage(tx_hash);
+          await messenger.waitForMessageStatus(tx_hash, MessageStatus.READY_FOR_RELAY);
+          await messenger.finalizeMessage(tx_hash, {}, Number(log_index));
 
           console.log('Waiting for message to be RELAYED');
 
-          await messenger.waitForMessageStatus(tx_hash, optimism.MessageStatus.RELAYED);
+          await messenger.waitForMessageStatus(tx_hash, MessageStatus.RELAYED);
         });
 }
