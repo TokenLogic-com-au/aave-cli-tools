@@ -1,61 +1,61 @@
-const optimism = require('@eth-optimism/sdk');
-const ethers = require('ethers');
 
-const PRIVATE_KEY = process.env.PRIVATE_KEY;
-const L2_TX = process.env.L2_TX;
+import { Command } from '@commander-js/extra-typings';
 
-const L1_RPC = 'https://rpc.ankr.com/eth_sepolia';
-const L2_RPC = 'https://sepolia.optimism.io';
-const L1_CHAIN_ID = 1;
-const L2_CHAIN_ID = 10;
+import { optimism } from '@eth-optimism/sdk';
+import { providers, Wallet } from 'ethers';
 
-const WAIT_TIME = 60;
+function getMessenger() {
+  const PRIVATE_KEY = process.env.PRIVATE_KEY ?? '';
+          const L1_CHAIN_ID = 1;
+          const L2_CHAIN_ID = 10;
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(() => resolve(), ms));
+          const l1_provider = new providers.StaticJsonRpcProvider(process.env.RPC_MAINNET);
+          const l2_provider = new providers.StaticJsonRpcProvider(process.env.RPC_OPTIMISM);
+          const l1_wallet = new Wallet(PRIVATE_KEY, l1_provider);
+          const l2_wallet = new Wallet(PRIVATE_KEY, l2_provider);
+
+          const messenger = new optimism.CrossChainMessenger({
+            l1ChainId: L1_CHAIN_ID,
+            l2ChainId: L2_CHAIN_ID,
+            l1SignerOrProvider: l1_wallet,
+            l2SignerOrProvider: l2_wallet,
+          });
+
+          return messenger;
 }
 
-async function main() {
-  // Create RPC providers and wallet
-  const l1_provider = new ethers.providers.StaticJsonRpcProvider(L1_RPC);
-  const l2_provider = new ethers.providers.StaticJsonRpcProvider(L2_RPC);
-  const l1_wallet = new ethers.Wallet(PRIVATE_KEY, l1_provider);
-  const l2_wallet = new ethers.Wallet(PRIVATE_KEY, l2_provider);
+export function addCommand(program: Command) {
+  program
+        .command('optimism-prove-message')
+        .description('prove optimism transaction to confirm bridge')
+        .argument('<tx_hash>')
+        .argument('<log_index>')
+        .argument('<block_number>')
+        .action(async (tx_hash, log_index) => {
+          const messenger = getMessenger();
 
-  // Create CrossChainMessenger instance
-  const messenger = new optimism.CrossChainMessenger({
-    l1ChainId: L1_CHAIN_ID,
-    l2ChainId: L2_CHAIN_ID,
-    l1SignerOrProvider: l1_wallet,
-    l2SignerOrProvider: l2_wallet,
-  });
+          console.log('Waiting for message to be READY_TO_PROVE');
 
-  // Wait until message is ready to prove
-  console.log('Wait for message status...');
-  await messenger.waitForMessageStatus(L2_TX, optimism.MessageStatus.READY_TO_PROVE);
+          await messenger.waitForMessageStatus(tx_hash, optimism.MessageStatus.READY_TO_PROVE);
+          await messenger.proveMessage(tx_hash);
+        });
 
-  // Prove the message on L1
-  console.log('Prove message on L1...');
-  await messenger.proveMessage(L2_TX);
+        program
+        .command('optimism-finalize-bridge')
+        .description('finalizes optimism transaction to bridge')
+        .argument('<tx_hash>')
+        .argument('<log_index>')
+        .argument('<block_number>')
+        .action(async (tx_hash, log_index) => {
+          const messenger = getMessenger();
 
-  // Wait until the message is ready for relay
-  // NOTE:
-  // This can only happen after the fault proof period has elapsed.
-  // On OP Sepolia, this is only a few seconds.
-  // On OP Mainnet, this takes 7 days.
-  console.log('Wait for message status...');
-  await messenger.waitForMessageStatus(L2_TX, optimism.MessageStatus.READY_FOR_RELAY);
+          console.log('Waiting for message to be READY_FOR_RELAY');
 
-  console.log(`Sleep ${WAIT_TIME} seconds`);
-  await sleep(WAIT_TIME * 1000);
+          await messenger.waitForMessageStatus(tx_hash, optimism.MessageStatus.READY_FOR_RELAY);
+          await messenger.finalizeMessage(tx_hash);
 
-  // Relay the message on L1
-  console.log('Finalize...');
-  await messenger.finalizeMessage(L2_TX);
+          console.log('Waiting for message to be RELAYED');
 
-  // Wait until the message is relayed
-  console.log('Wait for message status...');
-  await messenger.waitForMessageStatus(L2_TX, optimism.MessageStatus.RELAYED);
+          await messenger.waitForMessageStatus(tx_hash, optimism.MessageStatus.RELAYED);
+        });
 }
-
-main();
