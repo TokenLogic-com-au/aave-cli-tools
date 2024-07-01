@@ -1,9 +1,12 @@
 {
   "compilerOptions": {
+    "target": "es2020",
+    "module": "esnext",
     "strict": true,
-    "target": "ESNext",
-    "moduleResolution": "Node",
-    "allowSyntheticDefaultImports": true,
-    "resolveJsonModule": true
-  }
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true
+  },
+  "include": ["src"]
 }

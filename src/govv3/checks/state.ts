@@ -1,6 +1,6 @@
 // Based on https://github.com/Uniswap/governance-seatbelt/blob/main/checks/check-state-changes.ts
 // adjusted for viem & aave governance v3
-import { Hex, getAddress } from 'viem';
+import { Address, Hex, getAddress } from 'viem';
 import { ProposalCheck } from './types';
 import { getContractName } from '../utils/solidityUtils';
 import { StateDiff } from '../../utils/tenderlyClient';
@@ -9,7 +9,7 @@ import { interpretStateChange } from '../utils/stateDiffInterpreter';
 
 export const checkStateChanges: ProposalCheck<any> = {
   name: 'Reports all state changes',
-  async checkProposal(proposal, simulation, publicClient) {
+  async checkProposal(proposal, simulation, client) {
     const info: string[] = [];
     const warnings: string[] = [];
     const errors: string[] = [];
@@ -36,7 +36,11 @@ export const checkStateChanges: ProposalCheck<any> = {
         // Parse state changes at each address
         for (const [address, diffs] of Object.entries(stateDiffs)) {
           // Use contracts array to get contract name of address
-          stateChanges += `\n\`\`\`diff\n# ${getContractName(simulation.contracts, address)}\n`;
+          stateChanges += `\n${getContractName(
+            simulation.contracts,
+            address as Address,
+            client.chain!.id
+          )}\n\`\`\`diff\n`;
 
           // Parse each diff. A single diff may involve multiple storage changes, e.g. a proposal that
           // executes three transactions will show three state changes to the `queuedTransactions`
@@ -73,7 +77,7 @@ export const checkStateChanges: ProposalCheck<any> = {
                   original[k],
                   dirty[k],
                   k,
-                  publicClient
+                  client
                 );
                 if (interpretation) stateChanges += `\n${interpretation}`;
                 stateChanges += '\n';

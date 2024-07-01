@@ -1,66 +1,57 @@
-import { Hex, PublicClient, getAddress } from 'viem';
-import { StateDiff, TenderlySimulationResponse } from '../utils/tenderlyClient';
-import { tenderlyDeepDiff } from './utils/tenderlyDeepDiff';
-import { interpretStateChange } from './utils/stateDiffInterpreter';
-import { getContractName } from './utils/solidityUtils';
-import { boolToMarkdown, renderCheckResult, renderUnixTime, toTxLink } from './utils/markdownUtils';
+import { Client } from 'viem';
+import { TenderlySimulationResponse } from '../utils/tenderlyClient';
+import { renderCheckResult, renderUnixTime, toTxLink } from './utils/markdownUtils';
 import { checkTouchedContractsNoSelfdestruct } from './checks/selfDestruct';
 import { checkLogs } from './checks/logs';
 import { checkTouchedContractsVerifiedEtherscan } from './checks/targetsVerified';
 import { Governance, HUMAN_READABLE_STATE } from './governance';
 import { checkStateChanges } from './checks/state';
-import { getProposalMetadata } from '../ipfs/parseIpfs';
+import { getCachedIpfs } from '../ipfs/getCachedProposalMetaData';
 
 type GenerateReportRequest = {
   proposalId: bigint;
   proposalInfo: Awaited<ReturnType<Governance['getProposalAndLogs']>>;
   simulation: TenderlySimulationResponse;
-  publicClient: PublicClient;
+  client: Client;
 };
 
-export async function generateProposalReport({
-  proposalId,
-  proposalInfo,
-  simulation,
-  publicClient,
-}: GenerateReportRequest) {
+export async function generateProposalReport({ proposalId, proposalInfo, simulation, client }: GenerateReportRequest) {
   const { proposal, executedLog, queuedLog, createdLog, payloadSentLog, votingActivatedLog } = proposalInfo;
   // generate file header
   let report = `## Proposal ${proposalId}
 
+- Simulation: [https://dashboard.tenderly.co/me/simulator/${
+    simulation.simulation.id
+  }](https://dashboard.tenderly.co/me/simulator/${simulation.simulation.id})
 - state: ${HUMAN_READABLE_STATE[proposal.state as keyof typeof HUMAN_READABLE_STATE]}
 - creator: ${proposal.creator}
 - maximumAccessLevelRequired: ${proposal.accessLevel}
 - payloads: ${JSON.stringify(proposal.payloads, (key, value) => (typeof value === 'bigint' ? value.toString() : value))}
-- createdAt: [${renderUnixTime(proposal.creationTime)}](${toTxLink(
-    createdLog.transactionHash,
-    false,
-    publicClient
-  )})\n`;
+- createdAt: [${renderUnixTime(proposal.creationTime)}](${toTxLink(createdLog.transactionHash, false, client)})\n`;
   if (queuedLog) {
     report += `- queuedAt: [${renderUnixTime(proposal.queuingTime)}](${toTxLink(
       queuedLog.transactionHash,
       false,
-      publicClient
+      client
     )})\n`;
   }
   if (executedLog) {
     report += `- executedAt: [${renderUnixTime(executedLog.timestamp)}](${toTxLink(
       executedLog.transactionHash,
       false,
-      publicClient
+      client
     )})\n`;
   }
   report += '\n';
 
-  const ipfsMeta = await getProposalMetadata(proposal.ipfsHash, process.env.IPFS_GATEWAY);
+  const ipfsMeta = await getCachedIpfs(proposal.ipfsHash);
   report += `### Ipfs
 
 <details>
   <summary>Proposal text</summary>
   
   ${ipfsMeta.description}
-</details>`;
+</details>\n\n`;
 
   // check if simulation was successful
 
@@ -72,7 +63,7 @@ export async function generateProposalReport({
   ];
 
   for (const check of checks) {
-    const result = await check.checkProposal(proposalInfo, simulation, publicClient);
+    const result = await check.checkProposal(proposalInfo, simulation, client);
     report += renderCheckResult(check, result);
   }
 

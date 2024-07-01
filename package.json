@@ -1,8 +1,12 @@
 {
   "name": "@bgd-labs/aave-cli",
-  "version": "0.1.0",
+  "version": "0.7.0",
   "description": "A cli to perform various aave governance related tasks",
   "private": false,
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "start": "tsx src/cli.ts",
     "build": "tsup",
@@ -20,12 +24,11 @@
   },
   "homepage": "https://github.com/bgd-labs/report-engine#readme",
   "devDependencies": {
-    "@types/node-fetch": "^2.6.9",
     "@types/object-hash": "^3.0.6",
-    "tsup": "^7.2.0",
-    "tsx": "^3.14.0",
-    "typescript": "^5.2.2",
-    "vitest": "^0.34.6"
+    "tsup": "^8.0.1",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.2"
   },
   "type": "module",
   "main": "./dist/index.cjs",
@@ -52,20 +55,20 @@
   },
   "dependencies": {
     "@arbitrum/sdk": "^3.4.1",
-    "@bgd-labs/aave-address-book": "2.10.0",
+    "@bgd-labs/aave-address-book": "^2.19.0",
+    "@bgd-labs/js-utils": "^1.1.1",
     "@commander-js/extra-typings": "^11.1.0",
-    "@inquirer/prompts": "^3.3.0",
-    "bs58": "^5.0.0",
+    "@inquirer/prompts": "^3.3.2",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",
     "deepmerge": "^4.3.1",
-    "dotenv": "^16.3.1",
+    "dotenv": "^16.4.1",
+    "find-object-paths": "^1.0.2",
     "gray-matter": "^4.0.3",
     "ipfs-only-hash": "^4.0.0",
     "json-bigint": "^1.0.0",
-    "node-fetch": "^2.6.9",
     "object-hash": "^3.0.0",
-    "viem": "^1.18.9",
+    "viem": "^2.7.1",
     "zod": "^3.22.4"
   }
 }

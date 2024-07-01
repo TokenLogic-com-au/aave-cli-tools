@@ -1,5 +1,6 @@
 import { AaveSafetyModule, AaveV3Ethereum, GovernanceV3Ethereum } from '@bgd-labs/aave-address-book';
-import { Block, Hex, PublicClient, fromRlp, toHex, toRlp } from 'viem';
+import { Chain, Client, GetBlockReturnType, Hex, fromRlp, toHex, toRlp } from 'viem';
+import { getBlock, getProof as viemGetProof } from 'viem/actions';
 
 /**
  * Slots that represent configuration values relevant for all accounts
@@ -23,9 +24,9 @@ export const VOTING_SLOTS = {
   [GovernanceV3Ethereum.GOVERNANCE]: { representative: 9n }, // representative
 } as const;
 
-export async function getProof(publicClient: PublicClient, address: Hex, slots: readonly Hex[], blockHash: Hex) {
-  const block = await publicClient.getBlock({ blockHash });
-  return publicClient.getProof({
+export async function getProof(client: Client, address: Hex, slots: readonly Hex[], blockHash: Hex) {
+  const block = await getBlock(client, { blockHash });
+  return viemGetProof(client, {
     address,
     storageKeys: slots.map((slot) => slot),
     blockNumber: block.number,
@@ -33,7 +34,7 @@ export async function getProof(publicClient: PublicClient, address: Hex, slots: 
 }
 
 // IMPORTANT valid only for post-Shapella blocks, as it includes `withdrawalsRoot`
-export const getBLockRLP = (rawBlock: Block): Hex => {
+export const getBlockRLP = (rawBlock: GetBlockReturnType<Chain | undefined, false, 'latest'>): Hex => {
   const rawData: Hex[] = [
     rawBlock.parentHash,
     rawBlock.sha3Uncles,

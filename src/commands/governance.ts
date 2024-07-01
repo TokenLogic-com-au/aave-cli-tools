@@ -2,14 +2,21 @@ import { Command } from '@commander-js/extra-typings';
 import { simulateProposal } from '../govv3/simulate';
 import { IDataWarehouse_ABI, IVotingMachineWithProofs_ABI, IVotingPortal_ABI } from '@bgd-labs/aave-address-book';
 import { HUMAN_READABLE_STATE, getGovernance } from '../govv3/governance';
-import { CHAIN_ID_CLIENT_MAP } from '../utils/rpcClients';
+import { CHAIN_ID_CLIENT_MAP } from '@bgd-labs/js-utils';
 import { logError, logInfo, logSuccess } from '../utils/logger';
-import { Hex, PublicClient, encodeAbiParameters, encodeFunctionData, getContract } from 'viem';
+import { Address, Hex, encodeAbiParameters, encodeFunctionData, getContract } from 'viem';
 import { confirm, input, select } from '@inquirer/prompts';
 import { getCachedIpfs } from '../ipfs/getCachedProposalMetaData';
 import { toAddressLink, toTxLink } from '../govv3/utils/markdownUtils';
-import { getAccountRPL, getBLockRLP } from '../govv3/proofs';
+import { getAccountRPL, getBlockRLP } from '../govv3/proofs';
 import { DEFAULT_GOVERNANCE, DEFAULT_GOVERNANCE_CLIENT, FORMAT } from '../utils/constants';
+import { getPayloadsController } from '../govv3/payloadsController';
+import {
+  cacheGovernance,
+  cachePayloadsController,
+  readBookKeepingCache,
+  writeBookKeepingCache,
+} from '../govv3/cache/updateCache';
 
 enum DialogOptions {
   DETAILS,
@@ -33,15 +40,34 @@ export function addCommand(program: Command) {
     });
 
   govV3
+    .command('simulate-payload')
+    .description('simulates a payloadId on tenderly')
+    .requiredOption('--chainId <number>', 'the chainId to fork of')
+    .requiredOption('--payloadId <number>', 'payloadId to simulate via tenderly')
+    .option('--payloadsController <string>', 'PayloadsController address')
+    .action(async ({ payloadId: _payloadId, payloadsController: payloadsControllerAddress, chainId }, options) => {
+      const payloadId = Number(_payloadId);
+      const client = CHAIN_ID_CLIENT_MAP[Number(chainId) as keyof typeof CHAIN_ID_CLIENT_MAP];
+      const payloadsController = getPayloadsController(payloadsControllerAddress as Hex, client);
+      const cache = readBookKeepingCache();
+      const { eventsCache } = await cachePayloadsController(client, payloadsControllerAddress as Address, cache);
+      writeBookKeepingCache(cache);
+      const config = await payloadsController.getPayload(payloadId, eventsCache);
+      await payloadsController.simulatePayloadExecutionOnTenderly(Number(payloadId), config);
+    });
+
+  govV3
     .command('view')
     .description('shows all the proposals & state')
     .action(async (opts) => {
       const governance = getGovernance({
         address: DEFAULT_GOVERNANCE,
-        publicClient: DEFAULT_GOVERNANCE_CLIENT,
+        client: DEFAULT_GOVERNANCE_CLIENT,
         blockCreated: 9640498n,
       });
-      const logs = await governance.cacheLogs();
+      const cache = readBookKeepingCache();
+      const { eventsCache } = await cacheGovernance(DEFAULT_GOVERNANCE_CLIENT, DEFAULT_GOVERNANCE, cache);
+      writeBookKeepingCache(cache);
       const count = await governance.governanceContract.read.getProposalsCount();
       const proposalIds = [...Array(Number(count)).keys()].reverse();
       const selectedProposalId = BigInt(
@@ -59,7 +85,7 @@ export function addCommand(program: Command) {
           ),
         })
       );
-      const { proposal, ...proposalLogs } = await governance.getProposalAndLogs(selectedProposalId, logs);
+      const { proposal, ...proposalLogs } = await governance.getProposalAndLogs(selectedProposalId, eventsCache);
       let exitLvl2 = false;
       while (!exitLvl2) {
         const moreInfo = await select({
@@ -130,7 +156,7 @@ export function addCommand(program: Command) {
             logInfo(`Payload.${ix}.accessLevel`, payload.accessLevel);
             logInfo(
               `Payload.${ix}.chain`,
-              CHAIN_ID_CLIENT_MAP[Number(payload.chain) as keyof typeof CHAIN_ID_CLIENT_MAP].chain.name
+              CHAIN_ID_CLIENT_MAP[Number(payload.chain) as keyof typeof CHAIN_ID_CLIENT_MAP].chain!.name
             );
             logInfo(`Payload.${ix}.payloadId`, payload.payloadId);
             logInfo(`Payload.${ix}.payloadsController`, payload.payloadsController);
@@ -145,7 +171,7 @@ export function addCommand(program: Command) {
           const portal = getContract({
             address: proposal.votingPortal,
             abi: IVotingPortal_ABI,
-            publicClient: DEFAULT_GOVERNANCE_CLIENT,
+            client: DEFAULT_GOVERNANCE_CLIENT,
           });
           const [machine, chainId] = await Promise.all([
             portal.read.VOTING_MACHINE(),
@@ -156,11 +182,7 @@ export function addCommand(program: Command) {
           else {
             logSuccess(
               'VotingMachine',
-              toAddressLink(
-                machine,
-                false,
-                CHAIN_ID_CLIENT_MAP[Number(chainId) as keyof typeof CHAIN_ID_CLIENT_MAP] as PublicClient
-              )
+              toAddressLink(machine, false, CHAIN_ID_CLIENT_MAP[Number(chainId) as keyof typeof CHAIN_ID_CLIENT_MAP])
             );
             if (FORMAT === 'raw') {
               logSuccess('Method', 'submitVote');
@@ -187,7 +209,7 @@ export function addCommand(program: Command) {
           const portalContract = getContract({
             address: proposal.votingPortal,
             abi: IVotingPortal_ABI,
-            publicClient: DEFAULT_GOVERNANCE_CLIENT,
+            client: DEFAULT_GOVERNANCE_CLIENT,
           });
           const [machine, chainId] = await Promise.all([
             portalContract.read.VOTING_MACHINE(),
@@ -196,7 +218,7 @@ export function addCommand(program: Command) {
           const machineContract = getContract({
             address: machine,
             abi: IVotingMachineWithProofs_ABI,
-            publicClient: CHAIN_ID_CLIENT_MAP[Number(chainId) as keyof typeof CHAIN_ID_CLIENT_MAP] as PublicClient,
+            client: CHAIN_ID_CLIENT_MAP[Number(chainId) as keyof typeof CHAIN_ID_CLIENT_MAP],
           });
           const dataWarehouse = await machineContract.read.DATA_WAREHOUSE();
           const roots = await governance.getStorageRoots(selectedProposalId);
@@ -205,11 +227,11 @@ export function addCommand(program: Command) {
             toAddressLink(
               dataWarehouse,
               false,
-              CHAIN_ID_CLIENT_MAP[Number(chainId) as keyof typeof CHAIN_ID_CLIENT_MAP] as PublicClient
+              CHAIN_ID_CLIENT_MAP[Number(chainId) as keyof typeof CHAIN_ID_CLIENT_MAP]
             )
           );
           const block = await DEFAULT_GOVERNANCE_CLIENT.getBlock({ blockHash: proposal.snapshotBlockHash });
-          const blockRPL = getBLockRLP(block);
+          const blockRPL = getBlockRLP(block);
           console.log(FORMAT);
           if (FORMAT === 'raw') {
             logSuccess('Method', 'processStorageRoot');
@@ -247,14 +269,14 @@ export function addCommand(program: Command) {
     .action(async (name, options) => {
       const governance = getGovernance({
         address: DEFAULT_GOVERNANCE,
-        publicClient: DEFAULT_GOVERNANCE_CLIENT,
+        client: DEFAULT_GOVERNANCE_CLIENT,
       });
       const proposalId = BigInt(options.getOptionValue('proposalId'));
       const proposal = await governance.getProposal(proposalId);
 
       const roots = await governance.getStorageRoots(proposalId);
       const block = await DEFAULT_GOVERNANCE_CLIENT.getBlock({ blockHash: proposal.snapshotBlockHash });
-      const blockRPL = getBLockRLP(block);
+      const blockRPL = getBlockRLP(block);
       const params = roots.map((root) => {
         const accountRPL = getAccountRPL(root.accountProof);
         return {
@@ -295,7 +317,7 @@ export function addCommand(program: Command) {
     .action(async (name, options) => {
       const governance = getGovernance({
         address: DEFAULT_GOVERNANCE,
-        publicClient: DEFAULT_GOVERNANCE_CLIENT,
+        client: DEFAULT_GOVERNANCE_CLIENT,
       });
       const proposalId = BigInt(options.getOptionValue('proposalId'));
       const voter = options.getOptionValue('voter') as Hex;
@@ -305,7 +327,7 @@ export function addCommand(program: Command) {
       const portal = getContract({
         address: proposal.votingPortal,
         abi: IVotingPortal_ABI,
-        publicClient: DEFAULT_GOVERNANCE_CLIENT,
+        client: DEFAULT_GOVERNANCE_CLIENT,
       });
       const chainId = await portal.read.VOTING_MACHINE_CHAIN_ID();
       const proofs = await governance.getVotingProofs(proposalId, voter as Hex, chainId);

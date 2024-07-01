@@ -1,17 +1,15 @@
 import {
-  ContractFunctionResult,
+  AbiStateMutability,
+  Client,
+  ContractFunctionReturnType,
   GetContractReturnType,
   Hex,
-  PublicClient,
-  WalletClient,
   encodeFunctionData,
   fromHex,
-  getAbiItem,
   getContract,
   toHex,
 } from 'viem';
 import merge from 'deepmerge';
-import { LogWithTimestamp, getLogs } from '../utils/logs';
 import {
   AaveSafetyModule,
   AaveV3Ethereum,
@@ -27,24 +25,19 @@ import {
 } from '../utils/storageSlots';
 import { setBits } from '../utils/storageSlots';
 import { VOTING_SLOTS, WAREHOUSE_SLOTS, getAccountRPL, getProof } from './proofs';
-import { readJSONCache, writeJSONCache } from '../utils/cache';
 import { logInfo } from '../utils/logger';
 import { GetProofReturnType } from 'viem/_types/actions/public/getProof';
-import type { ExtractAbiEvent } from 'abitype';
-
-type CreatedEvent = ExtractAbiEvent<typeof IGovernanceCore_ABI, 'ProposalCreated'>;
-type QueuedEvent = ExtractAbiEvent<typeof IGovernanceCore_ABI, 'ProposalQueued'>;
-type CanceledEvent = ExtractAbiEvent<typeof IGovernanceCore_ABI, 'ProposalCanceled'>;
-type ExecutedEvent = ExtractAbiEvent<typeof IGovernanceCore_ABI, 'ProposalExecuted'>;
-type PayloadSentEvent = ExtractAbiEvent<typeof IGovernanceCore_ABI, 'PayloadSent'>;
-type VotingActivatedEvent = ExtractAbiEvent<typeof IGovernanceCore_ABI, 'VotingActivated'>;
-
-type CreatedLog = LogWithTimestamp<CreatedEvent>;
-type QueuedLog = LogWithTimestamp<QueuedEvent>;
-type CanceledLog = LogWithTimestamp<CanceledEvent>;
-type ExecutedLog = LogWithTimestamp<ExecutedEvent>;
-type PayloadSentLog = LogWithTimestamp<PayloadSentEvent>;
-type VotingActivatedLog = LogWithTimestamp<VotingActivatedEvent>;
+import { readJSONCache, writeJSONCache } from '@bgd-labs/js-utils';
+import {
+  ProposalCreatedEvent,
+  ProposalExecutedEvent,
+  ProposalPayloadSentEvent,
+  ProposalQueuedEvent,
+  ProposalVotingActivatedEvent,
+  findProposalLogs,
+  getGovernanceEvents,
+} from './cache/modules/governance';
+import { getBlock, getStorageAt, getTransaction } from 'viem/actions';
 
 export enum ProposalState {
   Null, // proposal does not exists
@@ -61,38 +54,32 @@ function isStateFinal(state: ProposalState) {
   return [ProposalState.Executed, ProposalState.Failed, ProposalState.Cancelled, ProposalState.Expired].includes(state);
 }
 
-export interface Governance<T extends WalletClient | undefined = undefined> {
-  governanceContract: GetContractReturnType<typeof IGovernanceCore_ABI, PublicClient, WalletClient>;
-  cacheLogs: (searchStartBlock?: bigint) => Promise<{
-    createdLogs: CreatedLog[];
-    queuedLogs: QueuedLog[];
-    executedLogs: ExecutedLog[];
-    payloadSentLogs: PayloadSentLog[];
-    votingActivatedLogs: VotingActivatedLog[];
-    canceledLogs: CanceledLog[];
-  }>;
+export interface Governance {
+  governanceContract: GetContractReturnType<typeof IGovernanceCore_ABI, Client>;
   /**
    * Thin caching wrapper on top of getProposal.
    * If the proposal state is final, the proposal will be stored in json and fetched from there.
    * @param proposalId
    * @returns Proposal struct
    */
-  getProposal: (proposalId: bigint) => Promise<ContractFunctionResult<typeof IGovernanceCore_ABI, 'getProposal'>>;
+  getProposal: (
+    proposalId: bigint
+  ) => Promise<ContractFunctionReturnType<typeof IGovernanceCore_ABI, AbiStateMutability, 'getProposal'>>;
   getProposalAndLogs: (
     proposalId: bigint,
-    logs: Awaited<ReturnType<Governance<T>['cacheLogs']>>
+    logs: Awaited<ReturnType<typeof getGovernanceEvents>>
   ) => Promise<{
-    proposal: ContractFunctionResult<typeof IGovernanceCore_ABI, 'getProposal'>;
-    createdLog: CreatedLog;
-    queuedLog?: QueuedLog;
-    executedLog?: ExecutedLog;
-    votingActivatedLog?: VotingActivatedLog;
-    payloadSentLog: PayloadSentLog[];
+    proposal: ContractFunctionReturnType<typeof IGovernanceCore_ABI, AbiStateMutability, 'getProposal'>;
+    createdLog: ProposalCreatedEvent;
+    queuedLog?: ProposalQueuedEvent;
+    executedLog?: ProposalExecutedEvent;
+    votingActivatedLog?: ProposalVotingActivatedEvent;
+    payloadSentLog: ProposalPayloadSentEvent[];
   }>;
   getSimulationPayloadForExecution: (proposalId: bigint) => Promise<TenderlyRequest>;
   simulateProposalExecutionOnTenderly: (
     proposalId: bigint,
-    params: { executedLog?: ExecutedLog }
+    params: { executedLog?: ProposalExecutedEvent }
   ) => Promise<TenderlySimulationResponse>;
   getStorageRoots(proposalId: bigint): Promise<GetProofReturnType[]>;
   /**
@@ -125,20 +112,19 @@ export const HUMAN_READABLE_STATE = {
 
 interface GetGovernanceParams {
   address: Hex;
-  publicClient: PublicClient;
-  walletClient?: WalletClient;
+  client: Client;
   blockCreated?: bigint;
 }
 
-export const getGovernance = ({
-  address,
-  publicClient,
-  walletClient,
-}: GetGovernanceParams): Governance<typeof walletClient> => {
-  const governanceContract = getContract({ abi: IGovernanceCore_ABI, address, publicClient, walletClient });
+export const getGovernance = ({ address, client }: GetGovernanceParams): Governance => {
+  const governanceContract = getContract({
+    abi: IGovernanceCore_ABI,
+    address,
+    client,
+  });
 
   async function getProposal(proposalId: bigint) {
-    const filePath = publicClient.chain!.id.toString() + `/proposals`;
+    const filePath = client.chain!.id.toString() + `/proposals`;
     const fileName = proposalId;
     const cache = readJSONCache(filePath, fileName.toString());
     if (cache) return cache;
@@ -148,9 +134,9 @@ export const getGovernance = ({
   }
 
   async function getSimulationPayloadForExecution(proposalId: bigint) {
-    const currentBlock = await publicClient.getBlock();
+    const currentBlock = await getBlock(client);
     const proposalSlot = getSolidityStorageSlotUint(SLOTS.PROPOSALS_MAPPING, proposalId);
-    const data = await publicClient.getStorageAt({
+    const data = await getStorageAt(client, {
       address: governanceContract.address,
       slot: proposalSlot,
     });
@@ -166,7 +152,7 @@ export const getGovernance = ({
       currentBlock.timestamp - (await governanceContract.read.PROPOSAL_EXPIRATION_TIME())
     );
     const simulationPayload: TenderlyRequest = {
-      network_id: String(publicClient.chain!.id),
+      network_id: String(client.chain!.id),
       from: EOA,
       to: governanceContract.address,
       input: encodeFunctionData({
@@ -192,71 +178,40 @@ export const getGovernance = ({
 
   return {
     governanceContract,
-    async cacheLogs(searchStartBlock) {
-      const logs = await getLogs(
-        publicClient,
-        [
-          getAbiItem({ abi: IGovernanceCore_ABI, name: 'ProposalCreated' }),
-          getAbiItem({ abi: IGovernanceCore_ABI, name: 'ProposalQueued' }),
-          getAbiItem({ abi: IGovernanceCore_ABI, name: 'ProposalExecuted' }),
-          getAbiItem({ abi: IGovernanceCore_ABI, name: 'PayloadSent' }),
-          getAbiItem({ abi: IGovernanceCore_ABI, name: 'VotingActivated' }),
-          getAbiItem({ abi: IGovernanceCore_ABI, name: 'ProposalCanceled' }),
-        ],
-        address,
-        searchStartBlock
-      );
-      const createdLogs = logs.filter((log) => log.eventName === 'ProposalCreated');
-      const queuedLogs = logs.filter((log) => log.eventName === 'ProposalQueued');
-      const executedLogs = logs.filter((log) => log.eventName === 'ProposalExecuted');
-      const payloadSentLogs = logs.filter((log) => log.eventName === 'PayloadSent');
-      const votingActivatedLogs = logs.filter((log) => log.eventName === 'VotingActivated');
-      const canceledLogs = logs.filter((log) => log.eventName === 'ProposalCanceled');
-
-      return { createdLogs, queuedLogs, executedLogs, payloadSentLogs, votingActivatedLogs, canceledLogs } as any;
-    },
     getProposal,
     async getProposalAndLogs(proposalId, logs) {
       const proposal = await getProposal(proposalId);
-      const createdLog = logs.createdLogs.find((log) => String(log.args.proposalId) === proposalId.toString())!;
-      const votingActivatedLog = logs.votingActivatedLogs.find(
-        (log) => String(log.args.proposalId) === proposalId.toString()
-      )!;
-      const queuedLog = logs.queuedLogs.find((log) => String(log.args.proposalId) === proposalId.toString());
-      const executedLog = logs.executedLogs.find((log) => String(log.args.proposalId) === proposalId.toString());
-      const payloadSentLog = logs.payloadSentLogs.filter(
-        (log) => String(log.args.proposalId) === proposalId.toString()
-      );
-      return { proposal, createdLog, votingActivatedLog, queuedLog, executedLog, payloadSentLog };
+      const proposalLogs = await findProposalLogs(logs, proposalId);
+      return { proposal, ...proposalLogs };
     },
     getSimulationPayloadForExecution,
     async simulateProposalExecutionOnTenderly(proposalId, { executedLog }) {
       // if successfully executed just replay the txn
       if (executedLog) {
-        const tx = await publicClient.getTransaction({ hash: executedLog.transactionHash! });
-        return tenderly.simulateTx(publicClient.chain!.id, tx);
+        const tx = await getTransaction(client, { hash: executedLog.transactionHash! });
+        return tenderly.simulateTx(client.chain!.id, tx);
       }
       const payload = await getSimulationPayloadForExecution(proposalId);
-      return tenderly.simulate(payload);
+      return tenderly.simulate(payload, client);
     },
     async getVotingProofs(proposalId: bigint, voter: Hex, votingChainId: bigint) {
       const proposal = await getProposal(proposalId);
 
       const [stkAaveProof, aaveProof, aAaveProof, representativeProof] = await Promise.all([
         getProof(
-          publicClient,
+          client,
           AaveSafetyModule.STK_AAVE,
           [getSolidityStorageSlotAddress(VOTING_SLOTS[AaveSafetyModule.STK_AAVE].balance, voter)],
           proposal.snapshotBlockHash
         ),
         getProof(
-          publicClient,
+          client,
           AaveV3Ethereum.ASSETS.AAVE.UNDERLYING,
           [getSolidityStorageSlotAddress(VOTING_SLOTS[AaveV3Ethereum.ASSETS.AAVE.UNDERLYING].balance, voter)],
           proposal.snapshotBlockHash
         ),
         getProof(
-          publicClient,
+          client,
           AaveV3Ethereum.ASSETS.AAVE.A_TOKEN,
           [
             getSolidityStorageSlotAddress(VOTING_SLOTS[AaveV3Ethereum.ASSETS.AAVE.A_TOKEN].balance, voter),
@@ -265,7 +220,7 @@ export const getGovernance = ({
           proposal.snapshotBlockHash
         ),
         getProof(
-          publicClient,
+          client,
           GovernanceV3Ethereum.GOVERNANCE,
           [
             getSolidityStorageSlotBytes(
@@ -309,7 +264,7 @@ export const getGovernance = ({
       const proofs = await Promise.all(
         (Object.keys(addresses) as (keyof typeof addresses)[]).map((address) =>
           getProof(
-            publicClient,
+            client,
             address,
             Object.keys(addresses[address]).map((slotKey) => toHex((addresses[address] as any)[slotKey])),
             proposal.snapshotBlockHash
