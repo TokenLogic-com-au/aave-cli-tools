@@ -2,11 +2,12 @@
 import 'dotenv/config';
 import { Command, Option } from '@commander-js/extra-typings';
 import { addCommand as addIpfsCommand } from './commands/ipfsUpload';
-import { addCommand as addDiffSnapshots } from './commands/diffSnaphots';
+import { addCommand as addDiffSnapshots } from './commands/diffSnapshots';
 import { addCommand as addGovernance } from './commands/governance';
 import { addCommand as addFork } from './commands/fork';
-import { addCommand as addOptimism} from './commands/optimism';
-import { addCommand as addAribtrumBridgeExit } from './commands/arbitrumBridgeExit';
+import { addCommand as addOptimism } from './commands/optimism';
+import { addCommand as addBase } from './commands/base';
+import { addCommand as addArbitrumBridgeExit } from './commands/arbitrumBridgeExit';
 import packageJson from '../package.json';
 
 const program = new Command();
@@ -31,6 +32,7 @@ addDiffSnapshots(program);
 addFork(program);
 addIpfsCommand(program);
 addOptimism(program);
-addAribtrumBridgeExit(program);
+addBase(program);
+addArbitrumBridgeExit(program);
 
 program.parse();
