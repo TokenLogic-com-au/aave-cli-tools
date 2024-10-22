@@ -5,8 +5,9 @@ import { addCommand as addIpfsCommand } from './commands/ipfsUpload';
 import { addCommand as addDiffSnapshots } from './commands/diffSnaphots';
 import { addCommand as addGovernance } from './commands/governance';
 import { addCommand as addFork } from './commands/fork';
-import { addCommand as addOptimism} from './commands/optimism';
+import { addCommand as addOptimism } from './commands/optimism';
 import { addCommand as addAribtrumBridgeExit } from './commands/arbitrumBridgeExit';
+import { addCommand as addCctpBridge } from './commands/cctpBridge';
 import packageJson from '../package.json';
 
 const program = new Command();
@@ -32,5 +33,6 @@ addFork(program);
 addIpfsCommand(program);
 addOptimism(program);
 addAribtrumBridgeExit(program);
+addCctpBridge(program);
 
 program.parse();
