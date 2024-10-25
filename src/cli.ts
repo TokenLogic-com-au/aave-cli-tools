@@ -5,8 +5,8 @@ import { addCommand as addIpfsCommand } from './commands/ipfsUpload';
 import { addCommand as addDiffSnapshots } from './commands/diffSnapshots';
 import { addCommand as addGovernance } from './commands/governance';
 import { addCommand as addFork } from './commands/fork';
-import { addCommand as addOptimism } from './commands/optimism';
-import { addCommand as addBase } from './commands/base';
+import { addCommand as addOptimismBridgeExit } from './commands/optimism';
+import { addCommand as addBaseBridgeExit } from './commands/base';
 import { addCommand as addArbitrumBridgeExit } from './commands/arbitrumBridgeExit';
 import packageJson from '../package.json';
 
@@ -31,8 +31,8 @@ addGovernance(program);
 addDiffSnapshots(program);
 addFork(program);
 addIpfsCommand(program);
-addOptimism(program);
-addBase(program);
+addOptimismBridgeExit(program);
+addBaseBridgeExit(program);
 addArbitrumBridgeExit(program);
 
 program.parse();
