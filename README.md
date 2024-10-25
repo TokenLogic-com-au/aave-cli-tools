@@ -32,7 +32,7 @@ The command line ui, explains how to vote and generates the proofs needed for vo
 
 ### GetStorageRoots
 
-`aave-cli governance getStorageRoots --proposalId <id>` is a utilitiy that generates the storage roots for the data warehouse.
+`aave-cli governance getStorageRoots --proposalId <id>` is a utility that generates the storage roots for the data warehouse.
 
 ### GetVotingProofs
 
