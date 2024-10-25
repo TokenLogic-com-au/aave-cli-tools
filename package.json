@@ -60,6 +60,7 @@
     "@commander-js/extra-typings": "^11.1.0",
     "@eth-optimism/sdk": "^3.3.2",
     "@inquirer/prompts": "^3.3.2",
+    "axios": "^1.7.7",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",
     "deepmerge": "^4.3.1",
